@@ -2,10 +2,16 @@
   "version": 2,
   "cleanUrls": true,
   "rewrites": [
-    { "source": "/api/:path*", "destination": "https://datapay.onrender.com/api/:path*" },
-    { "source": "/event/:slug*", "destination": "/index.html" },
-    { "source": "/events/:slug*", "destination": "/index.html" },
-    { "source": "/ticket/:id*", "destination": "/index.html" },
-    { "source": "/tickets/:id*", "destination": "/index.html" }
+    {
+      "source": "/api/:path*",
+      "destination": "https://datapay.onrender.com/api/:path*"
+    },
+    {
+      "source": "/((?!.*\\.[^/]+$).*)",
+      "destination": "/index.html"
+    }
   ]
 }
+
+
+
