@@ -7,11 +7,15 @@
       "destination": "https://datapay.onrender.com/api/:path*"
     },
     {
-      "source": "/((?!.*\\.[^/]+$).*)",
+      "source": "/(.*)",
       "destination": "/index.html"
     }
   ]
 }
+
+
+
+
 
 
 
