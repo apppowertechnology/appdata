@@ -7,15 +7,23 @@
       "destination": "https://datapay.onrender.com/api/:path*"
     },
     {
-      "source": "/(.*)",
+      "source": "/events/:path*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/event/:path*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/tickets/:path*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/ticket/:path*",
       "destination": "/index.html"
     }
   ]
 }
-
-
-
-
 
 
 
