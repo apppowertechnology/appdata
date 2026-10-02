@@ -29,9 +29,12 @@ const State = {
 };
 
 // API Base URL (Relative /api for local development & same-origin production)
-const API_BASE = (window.location.protocol.startsWith('http') && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || !window.location.origin.includes('datapay.onrender.com')))
-  ? '/api'
-  : 'https://datapay.onrender.com/api';
+const API_BASE =
+  (window.location.hostname === 'localhost' ||
+   window.location.hostname === '127.0.0.1')
+    ? '/api'
+    : 'https://datapay.onrender.com/api';
+
 
 
 // HTML Escape Utility
