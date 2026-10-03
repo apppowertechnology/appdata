@@ -42,7 +42,15 @@
       "destination": "/contact.html"
     },
     {
+      "source": "/events",
+      "destination": "/index.html"
+    },
+    {
       "source": "/events/:path*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/event",
       "destination": "/index.html"
     },
     {
@@ -50,11 +58,23 @@
       "destination": "/index.html"
     },
     {
+      "source": "/tickets",
+      "destination": "/index.html"
+    },
+    {
       "source": "/tickets/:path*",
       "destination": "/index.html"
     },
     {
+      "source": "/ticket",
+      "destination": "/index.html"
+    },
+    {
       "source": "/ticket/:path*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/(.*)",
       "destination": "/index.html"
     }
   ]

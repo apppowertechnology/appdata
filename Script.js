@@ -31,7 +31,11 @@ const State = {
 // API Base URL (Relative /api for local development & same-origin production)
 const API_BASE =
   (window.location.hostname === 'localhost' ||
-   window.location.hostname === '127.0.0.1')
+   window.location.hostname === '127.0.0.1' ||
+   window.location.hostname === '0.0.0.0' ||
+   window.location.port === '5000' ||
+   window.location.hostname.endsWith('.local') ||
+   window.location.origin.includes('onrender.com'))
     ? '/api'
     : 'https://datapay.onrender.com/api';
 
@@ -322,12 +326,18 @@ function getSharedTargetFromUrl() {
     }
   }
 
-  // Fallback query parameters (?event=slug or ?ticket=id)
+  // Fallback query parameters (?event=slug or ?ticket=id or ?slug= or ?id=)
   if (!target) {
     if (searchParams.get('event')) {
       target = { type: 'event', id: searchParams.get('event').trim() };
     } else if (searchParams.get('ticket')) {
       target = { type: 'ticket', id: searchParams.get('ticket').trim() };
+    } else if (searchParams.get('slug')) {
+      target = { type: 'event', id: searchParams.get('slug').trim() };
+    } else if (searchParams.get('eventId')) {
+      target = { type: 'event', id: searchParams.get('eventId').trim() };
+    } else if (searchParams.get('id') && !searchParams.get('airtime')) {
+      target = { type: 'event', id: searchParams.get('id').trim() };
     }
   }
 
@@ -390,10 +400,24 @@ async function renderSharedInvitationBanner(target) {
 
     if (target.type === 'event') {
       const cleanId = (target.id || '').toString().trim();
-      const endpoint = cleanId.startsWith('EVT-') ? `/events/${cleanId}` : `/events/slug/${encodeURIComponent(cleanId)}`;
-      const { ok, data } = await authFetch(endpoint);
-      if (ok && data.success && data.event) {
-        const ev = data.event;
+      let ev = null;
+      const primaryEndpoint = cleanId.startsWith('EVT-')
+        ? `/events/${encodeURIComponent(cleanId)}`
+        : `/events/slug/${encodeURIComponent(cleanId)}`;
+      let res = await authFetch(primaryEndpoint);
+      if (res.ok && res.data && res.data.success && res.data.event) {
+        ev = res.data.event;
+      } else {
+        const fallbackEndpoint = cleanId.startsWith('EVT-')
+          ? `/events/slug/${encodeURIComponent(cleanId)}`
+          : `/events/${encodeURIComponent(cleanId)}`;
+        const resFallback = await authFetch(fallbackEndpoint);
+        if (resFallback.ok && resFallback.data && resFallback.data.success && resFallback.data.event) {
+          ev = resFallback.data.event;
+        }
+      }
+
+      if (ev) {
         title = ev.title;
         const venuePart = ev.venue ? ` • ${ev.venue}` : '';
         subtitle = `You've been invited to <strong>${escapeHTML(ev.title)}</strong>${venuePart}. Sign in or register to get your ticket.`;
@@ -1874,16 +1898,50 @@ async function openEventDetails(slugOrId, preselectTicketTypeId = null, updateUr
   const cleanId = (slugOrId || '').toString().trim();
   if (!cleanId) return;
 
-  // Fetch complete event details
-  const endpoint = cleanId.startsWith('EVT-') ? `/events/${cleanId}` : `/events/slug/${encodeURIComponent(cleanId)}`;
-  const { ok, data } = await authFetch(endpoint);
+  // Visual feedback: show loading state inside event modal immediately
+  const loadingEl = document.getElementById('edLoadingState');
+  const contentEl = document.getElementById('edContentState');
+  const footerEl = document.getElementById('edModalFooter');
+  if (loadingEl) loadingEl.style.display = 'block';
+  if (contentEl) contentEl.style.display = 'none';
+  if (footerEl) footerEl.style.display = 'none';
+  openModal('eventDetailsModal');
 
-  if (!ok || !data.success || !data.event) {
+  // Fetch complete event details with fallback between /events/:id and /events/slug/:slug
+  let ev = null;
+  const primaryEndpoint = cleanId.startsWith('EVT-')
+    ? `/events/${encodeURIComponent(cleanId)}`
+    : `/events/slug/${encodeURIComponent(cleanId)}`;
+
+  let res = await authFetch(primaryEndpoint);
+  if (res.ok && res.data && res.data.success && res.data.event) {
+    ev = res.data.event;
+  } else {
+    // Fallback: try alternate endpoint
+    const fallbackEndpoint = cleanId.startsWith('EVT-')
+      ? `/events/slug/${encodeURIComponent(cleanId)}`
+      : `/events/${encodeURIComponent(cleanId)}`;
+    const resFallback = await authFetch(fallbackEndpoint);
+    if (resFallback.ok && resFallback.data && resFallback.data.success && resFallback.data.event) {
+      ev = resFallback.data.event;
+    }
+  }
+
+  // Handle Event Not Found
+  if (!ev) {
+    closeModal('eventDetailsModal');
+    if (loadingEl) loadingEl.style.display = 'none';
+    if (contentEl) contentEl.style.display = 'block';
+    if (footerEl) footerEl.style.display = 'flex';
     showEventNotFound(cleanId);
     return;
   }
 
-  const ev = data.event;
+  // Switch from loading to ready content
+  if (loadingEl) loadingEl.style.display = 'none';
+  if (contentEl) contentEl.style.display = 'block';
+  if (footerEl) footerEl.style.display = 'flex';
+
   State.selectedEvent = ev;
   State.selectedTicketType = null;
 
@@ -1905,9 +1963,11 @@ async function openEventDetails(slugOrId, preselectTicketTypeId = null, updateUr
   document.getElementById('edCreatorName').innerText = ev.creatorName || 'STRICTWALLET Organizer';
   document.getElementById('edDescription').innerText = ev.description || 'No description provided.';
 
-  // Shareable Link
-  const shareUrl = `${window.location.origin}/events/${ev.slug}`;
-  document.getElementById('edShareLinkText').innerText = shareUrl;
+  // Shareable Link: generates clean URL (/event/[slug] or /event/[id])
+  const eventIdentifier = ev.slug || ev.id;
+  const shareUrl = `${window.location.origin}/event/${encodeURIComponent(eventIdentifier)}`;
+  const shareLinkText = document.getElementById('edShareLinkText');
+  if (shareLinkText) shareLinkText.innerText = shareUrl;
 
   // Ticket Holder field defaults to logged in user's name
   const holderInput = document.getElementById('ticketHolderFullName');
@@ -1985,14 +2045,14 @@ async function openEventDetails(slugOrId, preselectTicketTypeId = null, updateUr
   }
 
   // Sync browser URL bar for direct copy & share without page reload
-  if (updateUrl && ev.slug) {
-    const targetPath = `/events/${ev.slug}`;
+  if (updateUrl && (ev.slug || ev.id)) {
+    const identifier = ev.slug || ev.id;
+    const prefix = window.location.pathname.startsWith('/events') ? '/events' : '/event';
+    const targetPath = `${prefix}/${encodeURIComponent(identifier)}`;
     if (window.location.pathname !== targetPath) {
       window.history.pushState({ modal: 'eventDetails', slug: ev.slug, id: ev.id }, ev.title, targetPath);
     }
   }
-
-  openModal('eventDetailsModal');
 }
 
 function showEventNotFound(slugOrId) {
@@ -2046,7 +2106,9 @@ window.addEventListener('popstate', (e) => {
 
 function copyEventShareLink() {
   if (!State.selectedEvent) return;
-  const shareUrl = `${window.location.origin}/events/${State.selectedEvent.slug}`;
+  const identifier = State.selectedEvent.slug || State.selectedEvent.id;
+  const prefix = window.location.pathname.startsWith('/events') ? '/events' : '/event';
+  const shareUrl = `${window.location.origin}${prefix}/${encodeURIComponent(identifier)}`;
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(shareUrl).then(() => {
       showToast('Event link copied to clipboard!', 'success');
@@ -3353,7 +3415,7 @@ async function loadMyOrganizedEvents() {
                       <i class="fa-solid fa-upload"></i> Publish Event Now
                     </button>
                   ` : `
-                    <button class="btn btn-outline btn-sm btn-block" onclick="openEventDetails('${ev.slug}')">
+                    <button class="btn btn-outline btn-sm btn-block" onclick="openEventDetails('${ev.slug || ev.id}')">
                       <i class="fa-solid fa-share-nodes"></i> Share / Preview
                     </button>
                   `}
