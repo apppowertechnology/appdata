@@ -153,6 +153,15 @@ function openModal(modalId) {
 function closeModal(modalId) {
   const modal = document.getElementById(modalId);
   if (modal) modal.classList.remove('active');
+  if (modalId === 'eventDetailsModal' || modalId === 'eventNotFoundModal') {
+    if (window.location.pathname.startsWith('/events/') || window.location.pathname.startsWith('/event/')) {
+      window.history.pushState({}, '', '/');
+    }
+  }
+}
+
+function closeEventDetailsModal() {
+  closeModal('eventDetailsModal');
 }
 
 // Navigation View Controller
@@ -284,38 +293,50 @@ async function verifyBankAccount() {
 // SHARED LINK PARSER & PENDING TARGET PERSISTENCE
 // -------------------------------------------------------------
 function getSharedTargetFromUrl() {
-  const path = window.location.pathname;
+  const path = window.location.pathname || '';
   const searchParams = new URLSearchParams(window.location.search);
   let target = null;
 
-  if (path.startsWith('/events/')) {
-    const slug = path.replace('/events/', '').split('/')[0].split('?')[0];
-    if (slug) target = { type: 'event', id: slug };
-  } else if (path.startsWith('/event/')) {
-    const slug = path.replace('/event/', '').split('/')[0].split('?')[0];
-    if (slug) target = { type: 'event', id: slug };
-  } else if (path.startsWith('/tickets/')) {
-    const ticketId = path.replace('/tickets/', '').split('/')[0].split('?')[0];
-    if (ticketId) target = { type: 'ticket', id: ticketId };
-  } else if (path.startsWith('/ticket/')) {
-    const ticketId = path.replace('/ticket/', '').split('/')[0].split('?')[0];
-    if (ticketId) target = { type: 'ticket', id: ticketId };
+  let decodedPath = path;
+  try {
+    decodedPath = decodeURIComponent(path).trim();
+  } catch (e) {
+    decodedPath = path.trim();
   }
 
+  // Support /events/:slug and /event/:slug (dynamic for any valid slug or ID)
+  const eventMatch = decodedPath.match(/^\/(?:events|event)\/([^/?#]+)/i);
+  if (eventMatch && eventMatch[1]) {
+    const rawSlug = eventMatch[1].trim();
+    if (rawSlug) {
+      target = { type: 'event', id: rawSlug };
+    }
+  }
+
+  // Support /tickets/:ticketId and /ticket/:ticketId
+  const ticketMatch = decodedPath.match(/^\/(?:tickets|ticket)\/([^/?#]+)/i);
+  if (ticketMatch && ticketMatch[1]) {
+    const rawTicket = ticketMatch[1].trim();
+    if (rawTicket) {
+      target = { type: 'ticket', id: rawTicket };
+    }
+  }
+
+  // Fallback query parameters (?event=slug or ?ticket=id)
   if (!target) {
     if (searchParams.get('event')) {
-      target = { type: 'event', id: searchParams.get('event') };
+      target = { type: 'event', id: searchParams.get('event').trim() };
     } else if (searchParams.get('ticket')) {
-      target = { type: 'ticket', id: searchParams.get('ticket') };
+      target = { type: 'ticket', id: searchParams.get('ticket').trim() };
     }
   }
 
   if (target) {
     if (searchParams.get('ticketType')) {
-      target.ticketTypeId = searchParams.get('ticketType');
+      target.ticketTypeId = searchParams.get('ticketType').trim();
     }
     if (searchParams.get('holder')) {
-      target.ticketHolder = searchParams.get('holder');
+      target.ticketHolder = searchParams.get('holder').trim();
     }
   }
 
@@ -368,28 +389,37 @@ async function renderSharedInvitationBanner(target) {
     let actionBtnHtml = '';
 
     if (target.type === 'event') {
-      const endpoint = target.id.startsWith('EVT-') ? `/events/${target.id}` : `/events/slug/${target.id}`;
+      const cleanId = (target.id || '').toString().trim();
+      const endpoint = cleanId.startsWith('EVT-') ? `/events/${cleanId}` : `/events/slug/${encodeURIComponent(cleanId)}`;
       const { ok, data } = await authFetch(endpoint);
       if (ok && data.success && data.event) {
         const ev = data.event;
         title = ev.title;
         const venuePart = ev.venue ? ` • ${ev.venue}` : '';
-        subtitle = `You've been invited to <strong>${ev.title}</strong>${venuePart}. Sign in or register to get your ticket.`;
+        subtitle = `You've been invited to <strong>${escapeHTML(ev.title)}</strong>${venuePart}. Sign in or register to get your ticket.`;
         actionBtnHtml = `<button type="button" class="banner-btn" onclick="openEventDetails('${ev.slug || ev.id}')"><i class="fa-solid fa-eye"></i> View Event</button>`;
+      } else {
+        if (loginBanner) loginBanner.style.display = 'none';
+        if (regBanner) regBanner.style.display = 'none';
+        return;
       }
     } else if (target.type === 'ticket') {
       const { ok, data } = await authFetch(`/events/ticket-info/${target.id}`);
       if (ok && data.success && data.event) {
         title = data.event.title;
-        subtitle = `You've received a ticket link for <strong>${data.event.title}</strong>. Sign in or register to access this ticket.`;
+        subtitle = `You've received a ticket link for <strong>${escapeHTML(data.event.title)}</strong>. Sign in or register to access this ticket.`;
         actionBtnHtml = `<button type="button" class="banner-btn" onclick="openEventDetails('${data.event.slug || data.event.id}')"><i class="fa-solid fa-eye"></i> View Event</button>`;
+      } else {
+        if (loginBanner) loginBanner.style.display = 'none';
+        if (regBanner) regBanner.style.display = 'none';
+        return;
       }
     }
 
     const bannerHtml = `
       <div class="banner-icon"><i class="fa-solid fa-ticket"></i></div>
       <div class="banner-content">
-        <div class="banner-title"><i class="fa-solid fa-envelope-open-text"></i> Shared Invitation: ${title}</div>
+        <div class="banner-title"><i class="fa-solid fa-envelope-open-text"></i> Shared Invitation: ${escapeHTML(title)}</div>
         <div class="banner-subtitle">${subtitle}</div>
       </div>
       ${actionBtnHtml}
@@ -449,7 +479,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (sharedTarget) {
       renderSharedInvitationBanner(sharedTarget);
       if (sharedTarget.type === 'event') {
-        openEventDetails(sharedTarget.id);
+        openEventDetails(sharedTarget.id, sharedTarget.ticketTypeId, false);
       }
     }
   }
@@ -522,7 +552,7 @@ async function initUserSession() {
       navigateToView('viewEvents');
       switchEventTab('discover');
       setTimeout(async () => {
-        await openEventDetails(pendingTarget.id, pendingTarget.ticketTypeId);
+        await openEventDetails(pendingTarget.id, pendingTarget.ticketTypeId, false);
         if (pendingTarget.ticketHolder) {
           const holderInput = document.getElementById('ticketHolderFullName');
           if (holderInput) holderInput.value = pendingTarget.ticketHolder;
@@ -532,6 +562,9 @@ async function initUserSession() {
         }
       }, 250);
     }
+  } else if (window.location.pathname === '/events' || window.location.pathname === '/events/') {
+    navigateToView('viewEvents');
+    switchEventTab('discover');
   }
 }
 
@@ -1834,16 +1867,19 @@ function renderMarketplaceEventCard(ev) {
 // -------------------------------------------------------------
 // 3. EVENT DETAILS MODAL & SLUG ROUTING
 // -------------------------------------------------------------
-async function openEventDetails(slugOrId, preselectTicketTypeId = null) {
+async function openEventDetails(slugOrId, preselectTicketTypeId = null, updateUrl = true) {
   const modal = document.getElementById('eventDetailsModal');
   if (!modal) return;
 
+  const cleanId = (slugOrId || '').toString().trim();
+  if (!cleanId) return;
+
   // Fetch complete event details
-  const endpoint = slugOrId.startsWith('EVT-') ? `/events/${slugOrId}` : `/events/slug/${slugOrId}`;
+  const endpoint = cleanId.startsWith('EVT-') ? `/events/${cleanId}` : `/events/slug/${encodeURIComponent(cleanId)}`;
   const { ok, data } = await authFetch(endpoint);
 
   if (!ok || !data.success || !data.event) {
-    showToast('Event not found or inactive.', 'warning');
+    showEventNotFound(cleanId);
     return;
   }
 
@@ -1948,8 +1984,65 @@ async function openEventDetails(slugOrId, preselectTicketTypeId = null) {
     document.getElementById('edSelectedPriceDisplay').innerText = '₦0.00';
   }
 
+  // Sync browser URL bar for direct copy & share without page reload
+  if (updateUrl && ev.slug) {
+    const targetPath = `/events/${ev.slug}`;
+    if (window.location.pathname !== targetPath) {
+      window.history.pushState({ modal: 'eventDetails', slug: ev.slug, id: ev.id }, ev.title, targetPath);
+    }
+  }
+
   openModal('eventDetailsModal');
 }
+
+function showEventNotFound(slugOrId) {
+  const notFoundModal = document.getElementById('eventNotFoundModal');
+  const msgEl = document.getElementById('eventNotFoundSlugMsg');
+  if (msgEl) {
+    msgEl.innerHTML = `The event "<strong>${escapeHTML(slugOrId)}</strong>" does not exist, has ended, or the link may have been entered incorrectly.`;
+  }
+  if (notFoundModal) {
+    openModal('eventNotFoundModal');
+  } else {
+    showToast(`Event "${slugOrId}" not found or inactive.`, 'warning');
+  }
+}
+
+function closeEventNotFoundModal(goToHome = false) {
+  closeModal('eventNotFoundModal');
+  clearPendingReturnTarget();
+  if (goToHome) {
+    window.history.pushState({}, '', '/');
+    if (!State.token) {
+      showAuthScreen('loginCard');
+    } else {
+      navigateToView('viewDashboard');
+    }
+  }
+}
+
+function handleNotFoundExplore() {
+  closeModal('eventNotFoundModal');
+  clearPendingReturnTarget();
+  window.history.pushState({}, '', '/');
+  if (State.token) {
+    navigateToView('viewEvents');
+    switchEventTab('discover');
+  } else {
+    window.location.href = '/event-ticketing';
+  }
+}
+
+// Popstate handler for browser forward/backward navigation
+window.addEventListener('popstate', (e) => {
+  const target = getSharedTargetFromUrl();
+  if (target && target.type === 'event') {
+    openEventDetails(target.id, target.ticketTypeId, false);
+  } else {
+    closeModal('eventDetailsModal');
+    closeModal('eventNotFoundModal');
+  }
+});
 
 function copyEventShareLink() {
   if (!State.selectedEvent) return;

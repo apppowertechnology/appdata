@@ -1448,6 +1448,32 @@
     </div>
   </div>
 
+  <!-- 8b. EVENT NOT FOUND MODAL -->
+  <div id="eventNotFoundModal" class="modal-overlay">
+    <div class="modal-box" style="max-width: 460px; text-align: center;">
+      <div class="modal-header" style="justify-content: flex-end; border-bottom: none; padding-bottom: 0;">
+        <button class="modal-close-btn" onclick="closeEventNotFoundModal(true)">&times;</button>
+      </div>
+      <div class="modal-body" style="padding-top: 0; padding-bottom: 24px;">
+        <div style="width: 72px; height: 72px; border-radius: 50%; background: rgba(239, 68, 68, 0.12); border: 2px solid rgba(239, 68, 68, 0.3); display: flex; align-items: center; justify-content: center; margin: 0 auto 16px;">
+          <i class="fa-solid fa-calendar-xmark" style="font-size: 2.2rem; color: var(--status-error);"></i>
+        </div>
+        <h3 style="font-size: 1.3rem; font-weight: 800; color: #FFF; margin-bottom: 10px;">Event Not Found</h3>
+        <p id="eventNotFoundSlugMsg" style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.5; margin-bottom: 24px;">
+          The event you're looking for doesn't exist, has ended, or the link is invalid.
+        </p>
+        <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+          <button type="button" class="btn btn-secondary" onclick="closeEventNotFoundModal(true)">
+            <i class="fa-solid fa-house"></i> Home
+          </button>
+          <button type="button" class="btn btn-primary" id="btnNotFoundExplore" onclick="handleNotFoundExplore()">
+            <i class="fa-solid fa-compass"></i> Explore Events
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- 9. TICKET PURCHASE CONFIRMATION & PIN MODAL -->
   <div id="eventPurchasePinModal" class="modal-overlay">
     <div class="modal-box" style="max-width: 440px;">

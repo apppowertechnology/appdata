@@ -1,10 +1,45 @@
 {
-  "version": 2,
   "cleanUrls": true,
   "rewrites": [
     {
-      "source": "/api/:path*",
-      "destination": "https://datapay.onrender.com/api/:path*"
+      "source": "/admin",
+      "destination": "/admin.html"
+    },
+    {
+      "source": "/about",
+      "destination": "/about.html"
+    },
+    {
+      "source": "/services",
+      "destination": "/services.html"
+    },
+    {
+      "source": "/event-ticketing",
+      "destination": "/event-ticketing.html"
+    },
+    {
+      "source": "/data-airtime",
+      "destination": "/data-airtime.html"
+    },
+    {
+      "source": "/pricing",
+      "destination": "/pricing.html"
+    },
+    {
+      "source": "/how-it-works",
+      "destination": "/how-it-works.html"
+    },
+    {
+      "source": "/terms",
+      "destination": "/terms.html"
+    },
+    {
+      "source": "/privacy",
+      "destination": "/privacy.html"
+    },
+    {
+      "source": "/contact",
+      "destination": "/contact.html"
     },
     {
       "source": "/events/:path*",
@@ -24,6 +59,3 @@
     }
   ]
 }
-
-
-
