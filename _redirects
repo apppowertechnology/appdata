@@ -20,3 +20,6 @@
 /tickets           /index.html             200
 /ticket/*          /index.html             200
 /ticket            /index.html             200
+
+# Catch-all SPA Fallback for all client-side routes
+/*                 /index.html             200
