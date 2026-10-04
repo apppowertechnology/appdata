@@ -74,6 +74,10 @@
       "destination": "/index.html"
     },
     {
+      "source": "/api/:path*",
+      "destination": "https://datapay.onrender.com/api/:path*"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
