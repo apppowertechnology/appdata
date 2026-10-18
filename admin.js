@@ -161,7 +161,8 @@ function navigateAdminView(viewId) {
     viewAdminPricing: 'Pricing & Profit Matrix',
     viewAdminSupport: 'Support Desk & Tickets',
     viewAdminLogs: 'Administrative Audit Trail',
-    viewAdminSocial: 'Social Media & Community Channels'
+    viewAdminSocial: 'Social Media & Community Channels',
+    viewAdminSms: 'SMS Alert Revenue & Audit'
   };
   document.getElementById('adminPageHeadline').innerText = titles[viewId] || 'Admin Console';
 
@@ -174,6 +175,7 @@ function navigateAdminView(viewId) {
   if (viewId === 'viewAdminSupport') loadAdminSupportTickets();
   if (viewId === 'viewAdminLogs') loadAdminAuditLogs();
   if (viewId === 'viewAdminSocial') loadAdminSocialLinks();
+  if (viewId === 'viewAdminSms') loadAdminSmsRevenue();
 }
 
 // -------------------------------------------------------------
@@ -676,7 +678,7 @@ async function loadAdminUsers() {
           </td>
           <td>${u.phone || '-'}</td>
           <td>
-            <strong style="color: var(--accent-blue-light); font-size: 0.82rem;">${u.virtualBankName || 'Nombank MFB'}</strong>
+            <strong style="color: var(--accent-blue-light); font-size: 0.82rem;">${u.virtualBankName || 'Sterling Bank'}</strong>
             <div style="font-family: var(--font-mono); color: #FFF;">${u.virtualAccountNumber || 'Not Generated'}</div>
           </td>
           <td style="font-family: var(--font-mono); font-weight: 700; color: var(--accent-emerald);">
@@ -1497,6 +1499,92 @@ window.reconcileAdminDeposit = async function(reference) {
   } catch (err) {
     console.error('reconcileAdminDeposit Error:', err);
     showAdminToast('Error during reconciliation: ' + err.message, 'error');
+  }
+};
+
+// -------------------------------------------------------------
+// SMS ALERT REVENUE & AUDIT LEDGER
+// -------------------------------------------------------------
+function escapeAdminHtml(str) {
+  if (!str) return '';
+  const div = document.createElement('div');
+  div.appendChild(document.createTextNode(str));
+  return div.innerHTML;
+}
+
+window.loadAdminSmsRevenue = async function() {
+  const tbody = document.getElementById('admSmsTableBody');
+  if (tbody) {
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; padding: 24px; color: var(--text-muted);"><i class="fa-solid fa-spinner fa-spin"></i> Loading SMS revenue and audit records...</td></tr>';
+  }
+
+  try {
+    const { ok, data } = await adminFetch('/admin/sms-revenue');
+    if (!ok || !data.success) {
+      showAdminToast(data?.message || 'Failed to fetch SMS revenue records.', 'error');
+      if (tbody) {
+        tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding: 24px; color: var(--status-error);">${escapeAdminHtml(data?.message || 'Failed to load SMS audit records.')}</td></tr>`;
+      }
+      return;
+    }
+
+    const { summary, alerts } = data;
+
+    // Update metric cards
+    const totalSentEl = document.getElementById('admSmsTotalSent');
+    const totalRevEl = document.getElementById('admSmsTotalRevenue');
+    const totalCostEl = document.getElementById('admSmsTotalCost');
+    const totalProfitEl = document.getElementById('admSmsTotalProfit');
+
+    if (totalSentEl) totalSentEl.innerText = (summary?.totalSmsSent || 0).toLocaleString();
+    if (totalRevEl) totalRevEl.innerText = formatNaira(summary?.totalSmsRevenue || 0);
+    if (totalCostEl) totalCostEl.innerText = formatNaira(summary?.totalProviderCost || 0);
+    if (totalProfitEl) totalProfitEl.innerText = formatNaira(summary?.totalGrossProfit || 0);
+
+    if (!alerts || alerts.length === 0) {
+      if (tbody) {
+        tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; padding: 24px; color: var(--text-muted);">No transactional SMS alerts recorded in the system yet.</td></tr>';
+      }
+      return;
+    }
+
+    if (tbody) {
+      tbody.innerHTML = alerts.map(a => {
+        const isSuccess = a.status === 'sent';
+        const statusBadge = isSuccess
+          ? '<span class="badge badge-success"><i class="fa-solid fa-check"></i> Sent</span>'
+          : `<span class="badge badge-danger">${escapeAdminHtml(a.status || 'Failed')}</span>`;
+
+        const typeBadge = a.alertType === 'credit'
+          ? '<span class="badge" style="background: rgba(0, 208, 156, 0.15); color: #00D09C;"><i class="fa-solid fa-arrow-down"></i> Credit</span>'
+          : '<span class="badge" style="background: rgba(239, 68, 68, 0.15); color: #f87171;"><i class="fa-solid fa-arrow-up"></i> Debit</span>';
+
+        return `
+          <tr>
+            <td style="font-family: var(--font-mono); font-size: 0.8rem; font-weight: 700;">
+              ${escapeAdminHtml(a.reference || a.id || '-')}
+            </td>
+            <td>
+              <div style="font-weight: 600; color: #FFF;">${escapeAdminHtml(a.userPhone || a.phone || '-')}</div>
+              <div style="font-size: 0.72rem; color: var(--text-muted);">User: ${escapeAdminHtml(a.userId || '-')}</div>
+            </td>
+            <td>${typeBadge}</td>
+            <td style="font-family: var(--font-mono); font-weight: 600;">${formatNaira(a.amount || 0)}</td>
+            <td style="font-family: var(--font-mono);">${formatNaira(a.userBalance || 0)}</td>
+            <td style="font-family: var(--font-mono); color: var(--accent-emerald); font-weight: 700;">${formatNaira(a.customerCharge || 0)}</td>
+            <td style="font-family: var(--font-mono); color: #f87171;">${formatNaira(a.providerCost || 0)}</td>
+            <td style="font-family: var(--font-mono); color: #60a5fa; font-weight: 700;">+${formatNaira(a.grossProfit || 0)}</td>
+            <td>${statusBadge}</td>
+            <td style="font-size: 0.8rem; color: var(--text-muted);">${formatDateTime(a.createdAt)}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+  } catch (err) {
+    console.error('loadAdminSmsRevenue Error:', err);
+    if (tbody) {
+      tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; padding: 24px; color: var(--status-error);">Connection error loading SMS records.</td></tr>';
+    }
   }
 };
 
