@@ -438,6 +438,9 @@
                 <button class="btn btn-primary" id="btnDashboardFund" onclick="openModal('fundWalletModal')">
                   <i class="fa-solid fa-plus"></i> Fund Wallet
                 </button>
+                <button class="btn btn-outline" id="btnDashboardWithdraw" onclick="openMainWalletWithdrawalModal()">
+                  <i class="fa-solid fa-arrow-up-from-bracket"></i> Withdraw
+                </button>
                 <button class="btn btn-secondary" onclick="navigateToView('viewAirtime')">
                   <i class="fa-solid fa-mobile-screen-button"></i> Airtime
                 </button>
@@ -784,6 +787,7 @@
                 <select id="txFilterType" style="width: 140px; padding: 8px 12px;">
                   <option value="all">All Types</option>
                   <option value="deposit">Deposits</option>
+                  <option value="withdrawal">Withdrawals</option>
                   <option value="airtime">Airtime</option>
                   <option value="data">Data</option>
                 </select>
@@ -1486,6 +1490,97 @@
     </div>
   </div>
 
+  <!-- 6B. MAIN WALLET WITHDRAWAL MODAL -->
+  <div id="mainWalletWithdrawModal" class="modal-overlay">
+    <div class="modal-box" style="max-width: 480px;">
+      <div class="modal-header">
+        <div>
+          <h3 class="card-title"><i class="fa-solid fa-building-columns" style="color: var(--accent-emerald);"></i> Withdraw from Main Wallet</h3>
+          <p class="card-subtitle">Transfer funds directly from your main wallet to your Nigerian bank account.</p>
+        </div>
+        <button class="modal-close-btn" onclick="closeModal('mainWalletWithdrawModal')">&times;</button>
+      </div>
+      <form id="mainWalletWithdrawForm">
+        <div class="modal-body">
+          
+          <!-- Balance & Applicable Charges Breakdown Banner -->
+          <div style="background: rgba(13, 21, 45, 0.85); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 14px; margin-bottom: 16px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+              <span style="color: var(--text-muted); font-size: 0.85rem;">Available Main Wallet Balance:</span>
+              <strong id="mainWthAvailableBalanceDisplay" style="color: var(--accent-emerald); font-family: var(--font-mono);">₦0.00</strong>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 0.78rem; color: var(--text-secondary); border-top: 1px solid var(--border-color); padding-top: 6px;">
+              <span>Withdrawal Charge:</span>
+              <strong style="color: #FFF;">₦20.00</strong>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 0.78rem; color: var(--text-secondary); padding-top: 4px;">
+              <span>Stamp Duty (₦10,000 and above):</span>
+              <strong id="mainWthStampDutyDisplay" style="color: #FFF;">₦0.00</strong>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 0.82rem; color: var(--text-secondary); border-top: 1px solid var(--border-color); margin-top: 6px; padding-top: 6px;">
+              <span style="color: var(--text-muted);">Total Wallet Deduction:</span>
+              <strong id="mainWthTotalDeductionDisplay" style="color: var(--accent-emerald); font-family: var(--font-mono);">₦0.00</strong>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 0.82rem; color: var(--text-secondary); border-top: 1px solid var(--border-color); margin-top: 6px; padding-top: 6px;">
+              <span style="color: var(--text-muted);">Amount You Will Receive:</span>
+              <strong id="mainWthReceiveAmountDisplay" style="color: #FFF; font-family: var(--font-mono); font-size: 0.95rem;">₦0.00</strong>
+            </div>
+          </div>
+
+          <!-- Amount -->
+          <div class="form-group">
+            <label class="form-label" for="mainWthAmount">Amount to Withdraw (₦) *</label>
+            <input type="number" id="mainWthAmount" placeholder="e.g. 10000" min="100" required oninput="calculateMainWithdrawalTotal()">
+          </div>
+
+          <!-- Destination Bank Selection -->
+          <div class="form-group">
+            <label class="form-label" for="mainWthBankSelect">Destination Bank *</label>
+            <select id="mainWthBankSelect" required onchange="onMainBankSelectionChange()" onclick="if(this.options.length <= 1 || this.value === '') loadMainWalletBanks()" onfocus="if(this.options.length <= 1 || this.value === '') loadMainWalletBanks()">
+              <option value="">-- Choose destination bank --</option>
+            </select>
+          </div>
+
+          <!-- Account Number -->
+          <div class="form-group">
+            <label class="form-label" for="mainWthAccountNumber">Bank Account Number (10 digits) *</label>
+            <input type="text" id="mainWthAccountNumber" maxlength="10" placeholder="0123456789" required oninput="onMainAccountNumberInput(this)">
+          </div>
+
+          <!-- Verified Account Name Display -->
+          <div class="form-group" id="mainWthAccountNameWrap" style="margin-bottom: 14px;">
+            <label class="form-label">Account Name (Auto-Verified)</label>
+            <div id="mainWthAccountNameDisplay" style="padding: 10px 14px; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border-color); border-radius: var(--radius-sm); font-size: 0.9rem; font-weight: 700; color: var(--text-muted);">
+              Enter 10-digit account number to verify owner name...
+            </div>
+            <input type="hidden" id="mainWthNameEnquiryRef" value="">
+          </div>
+
+          <!-- Narration -->
+          <div class="form-group">
+            <label class="form-label" for="mainWthNarration">Narration *</label>
+            <input type="text" id="mainWthNarration" placeholder="e.g. Main wallet withdrawal" required value="Wallet withdrawal">
+          </div>
+
+          <!-- 4-Digit Transaction PIN -->
+          <div class="form-group">
+            <label class="form-label" for="mainWthPin" style="color: var(--accent-emerald); font-weight: 700;">
+              <i class="fa-solid fa-lock"></i> 4-Digit STRICTWALLET Transaction PIN *
+            </label>
+            <input type="password" id="mainWthPin" maxlength="4" placeholder="••••" style="font-size: 1.25rem; letter-spacing: 0.25em; text-align: center;" required pattern="\d{4}">
+          </div>
+
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: space-between;">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('mainWalletWithdrawModal')">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btnSubmitMainWithdrawal">
+            <i class="fa-solid fa-arrow-up-from-bracket"></i> Confirm Withdrawal
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- ================= EVENT TICKETING SYSTEM MODALS ================= -->
 
   <!-- 7. CREATE EVENT MODAL -->
@@ -2075,6 +2170,7 @@
         <button type="button" class="btn btn-primary" id="btnDownloadCreatorReceiptPdf" onclick="downloadCurrentCreatorReceiptPdf()">
           <i class="fa-solid fa-file-pdf"></i> Download Receipt (PDF)
         </button>
+      </div>
     </div>
   </div>
 
