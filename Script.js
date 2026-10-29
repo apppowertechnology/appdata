@@ -1177,6 +1177,9 @@ function updateBalanceDisplay() {
 
   if (modalMainAvailEl) modalMainAvailEl.innerText = formatNaira(balance);
 
+  const mainWthAvailEl = document.getElementById('mainWthAvailableBalanceDisplay');
+  if (mainWthAvailEl) mainWthAvailEl.innerText = formatNaira(balance);
+
   renderSmsAlertSettingsUI();
 }
 
@@ -1262,12 +1265,13 @@ function renderRecentTransactions(transactions) {
 
     let typeIcon = tx.type === 'deposit' ? '<i class="fa-solid fa-arrow-down" style="color: var(--accent-emerald);"></i> Deposit' : 
                    tx.type === 'airtime' ? '<i class="fa-solid fa-mobile-screen-button" style="color: #38BDF8;"></i> Airtime' : 
+                   tx.type === 'withdrawal' ? '<i class="fa-solid fa-arrow-up-from-bracket" style="color: #F87171;"></i> Withdrawal' :
                    '<i class="fa-solid fa-wifi" style="color: #8B5CF6;"></i> Data';
 
     const isPending = (tx.status === 'Pending' || tx.status === 'Processing') && tx.type === 'deposit';
 
     return `
-      <tr ${isPending ? `style="cursor: pointer;" onclick="checkDepositStatusWithModal('${tx.providerReference || tx.id}', ${tx.amount})" title="Click to verify status"` : ''}>
+      <tr ${isPending ? `style="cursor: pointer;" onclick="checkDepositStatusWithModal('${tx.providerReference || tx.id}', ${tx.amount})" title="Click to verify status"` : `style="cursor: pointer;" onclick='showReceiptModal(${JSON.stringify(tx).replace(/'/g, "&apos;")})' title="Click to view details"`}>
         <td><strong>${typeIcon}</strong></td>
         <td>
           <div>${tx.description || tx.id}</div>
@@ -2105,7 +2109,9 @@ async function loadAllTransactions() {
       const isPending = (tx.status === 'Pending' || tx.status === 'Processing') && tx.type === 'deposit';
       const channelDisplay = tx.type === 'deposit'
         ? (tx.channel ? `<span style="text-transform: capitalize; color: var(--accent-blue-light);"><i class="fa-solid fa-credit-card"></i> ${tx.channel}</span>` : '<span style="color: var(--text-muted);">Paystack</span>')
-        : (tx.phoneNumber ? `<span style="font-family: var(--font-mono);">${tx.phoneNumber}</span>` : '-');
+        : (tx.type === 'withdrawal'
+          ? `<span style="color: var(--accent-emerald);"><i class="fa-solid fa-building-columns"></i> ${escapeHTML(tx.bankName || 'Bank')}</span>`
+          : (tx.phoneNumber ? `<span style="font-family: var(--font-mono);">${tx.phoneNumber}</span>` : '-'));
 
       return `
         <tr>
@@ -2147,11 +2153,12 @@ function showReceiptModal(tx) {
   else if (tx.status === 'Cancelled') badgeClass = 'badge-cancelled';
 
   const isDeposit = tx.type === 'deposit';
+  const isWithdrawal = tx.type === 'withdrawal';
 
   body.innerHTML = `
     <div style="text-align: center; margin-bottom: 20px;">
-      <img src="Image.png" alt="STRICTWALLET" style="height: 44px; margin-bottom: 8px;">
-      <h3 style="font-size: 1.1rem; color: #FFF;">STRICTWALLET TRANSACTION RECEIPT</h3>
+      <img src="Image.png" alt="STRICTWALLET" style="height: 44px; margin-bottom: 8px;" onerror="this.style.display='none'">
+      <h3 style="font-size: 1.1rem; color: #FFF;">STRICTWALLET ${isWithdrawal ? 'WITHDRAWAL' : 'TRANSACTION'} RECEIPT</h3>
       <span class="badge ${badgeClass}" style="margin-top: 6px;">${tx.status}</span>
     </div>
 
@@ -2162,17 +2169,44 @@ function showReceiptModal(tx) {
       </div>
       <div style="display: flex; justify-content: space-between;">
         <span style="color: var(--text-muted);">Reference:</span>
-        <span style="color: #FFF; font-family: var(--font-mono); font-size: 0.82rem;">${tx.paystackReference || tx.providerReference || tx.id}</span>
+        <span style="color: #FFF; font-family: var(--font-mono); font-size: 0.82rem;">${tx.providerReference || tx.paystackReference || tx.id}</span>
       </div>
       <div style="display: flex; justify-content: space-between;">
         <span style="color: var(--text-muted);">Transaction Type:</span>
-        <strong style="color: #FFF; text-transform: uppercase;">${tx.type}</strong>
+        <strong style="color: #FFF; text-transform: uppercase;">${isWithdrawal ? 'MAIN WALLET WITHDRAWAL' : tx.type}</strong>
       </div>
       ${isDeposit && tx.channel ? `
       <div style="display: flex; justify-content: space-between;">
         <span style="color: var(--text-muted);">Payment Channel:</span>
         <span style="color: #FFF; text-transform: capitalize;">${tx.channel}${tx.cardType ? ` (${tx.cardType})` : ''}${tx.bank ? ` - ${tx.bank}` : ''}</span>
       </div>` : ''}
+      ${isWithdrawal ? `
+      <div style="display: flex; justify-content: space-between;">
+        <span style="color: var(--text-muted);">Destination Bank:</span>
+        <strong style="color: #FFF;">${escapeHTML(tx.bankName || 'Bank')}</strong>
+      </div>
+      <div style="display: flex; justify-content: space-between;">
+        <span style="color: var(--text-muted);">Account Name:</span>
+        <strong style="color: #FFF;">${escapeHTML(tx.accountName || '-')}</strong>
+      </div>
+      <div style="display: flex; justify-content: space-between;">
+        <span style="color: var(--text-muted);">Account Number:</span>
+        <span style="color: #FFF; font-family: var(--font-mono);">${formatMaskedAccount(tx.accountNumber)}</span>
+      </div>
+      <div style="display: flex; justify-content: space-between;">
+        <span style="color: var(--text-muted);">Withdrawal Fee:</span>
+        <span style="color: var(--text-secondary); font-family: var(--font-mono);">${formatNaira(tx.charge || 20)}</span>
+      </div>
+      ${tx.stampDuty && tx.stampDuty > 0 ? `
+      <div style="display: flex; justify-content: space-between;">
+        <span style="color: var(--text-muted);">Stamp Duty:</span>
+        <span style="color: var(--text-secondary); font-family: var(--font-mono);">${formatNaira(tx.stampDuty)}</span>
+      </div>` : ''}
+      <div style="display: flex; justify-content: space-between;">
+        <span style="color: var(--text-muted);">Total Wallet Deducted:</span>
+        <strong style="color: #FFF; font-family: var(--font-mono);">${formatNaira(tx.totalDeducted || (tx.amount + (tx.charge || 20) + (tx.stampDuty || 0)))}</strong>
+      </div>
+      ` : ''}
       ${tx.network ? `
       <div style="display: flex; justify-content: space-between;">
         <span style="color: var(--text-muted);">Network:</span>
@@ -2187,19 +2221,316 @@ function showReceiptModal(tx) {
         <span style="color: var(--text-muted);">Date & Time:</span>
         <span style="color: #FFF;">${formatDateTime(tx.createdAt)}</span>
       </div>
-      ${tx.fee && tx.fee > 0 ? `
+      ${!isWithdrawal && tx.fee && tx.fee > 0 ? `
       <div style="display: flex; justify-content: space-between;">
         <span style="color: var(--text-muted);">Processing Fee:</span>
         <span style="color: var(--text-muted); font-family: var(--font-mono);">${formatNaira(tx.fee)}</span>
       </div>` : ''}
       <div style="display: flex; justify-content: space-between; border-top: 1px solid var(--border-color); padding-top: 10px; font-size: 1.1rem;">
-        <span style="color: var(--text-muted);">${isDeposit ? 'Amount Credited:' : 'Amount Paid:'}</span>
+        <span style="color: var(--text-muted);">${isDeposit ? 'Amount Credited:' : (isWithdrawal ? 'Amount Sent to Bank:' : 'Amount Paid:')}</span>
         <strong style="color: var(--accent-emerald); font-family: var(--font-mono);">${formatNaira(tx.amount)}</strong>
       </div>
     </div>
+
+    ${tx.status === 'Failed' && tx.failureReason ? `
+    <div style="background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: var(--radius-sm); padding: 10px 14px; margin-top: 12px; color: #FCA5A5; font-size: 0.82rem; line-height: 1.45;">
+      <i class="fa-solid fa-triangle-exclamation"></i> <strong>Failure Reason:</strong> ${escapeHTML(tx.failureReason)}
+      <div style="font-size: 0.75rem; color: #F87171; margin-top: 4px;">Your Main Wallet balance has been safely restored.</div>
+    </div>` : ''}
   `;
 
   openModal('txReceiptModal');
+}
+
+// -------------------------------------------------------------
+// MAIN WALLET BANK WITHDRAWAL
+// -------------------------------------------------------------
+
+async function openMainWalletWithdrawalModal() {
+  if (!State.token || !State.user) {
+    showToast('Please sign in to access your wallet.', 'info');
+    return;
+  }
+
+  const currentBal = State.wallet ? (State.wallet.balance || 0) : 0;
+  const availDisplay = document.getElementById('mainWthAvailableBalanceDisplay');
+  if (availDisplay) availDisplay.innerText = formatNaira(currentBal);
+
+  const amountEl = document.getElementById('mainWthAmount');
+  if (amountEl) amountEl.value = '';
+
+  const accNumEl = document.getElementById('mainWthAccountNumber');
+  if (accNumEl) accNumEl.value = '';
+
+  const narrationEl = document.getElementById('mainWthNarration');
+  if (narrationEl) narrationEl.value = 'Wallet withdrawal';
+
+  const pinEl = document.getElementById('mainWthPin');
+  if (pinEl) pinEl.value = '';
+
+  const refEl = document.getElementById('mainWthNameEnquiryRef');
+  if (refEl) refEl.value = '';
+
+  const nameDisplay = document.getElementById('mainWthAccountNameDisplay');
+  if (nameDisplay) {
+    nameDisplay.innerText = 'Enter 10-digit account number to verify owner name...';
+    nameDisplay.style.color = 'var(--text-muted)';
+  }
+
+  calculateMainWithdrawalTotal();
+  openModal('mainWalletWithdrawModal');
+  loadMainWalletBanks();
+}
+
+async function loadMainWalletBanks(force = false) {
+  const select = document.getElementById('mainWthBankSelect');
+  if (!select) return;
+
+  // Already populated with options
+  if (!force && State.strowalletBanks && State.strowalletBanks.length > 0 && select.options.length > 2) {
+    return;
+  }
+
+  // If in state already, populate immediately
+  if (State.strowalletBanks && State.strowalletBanks.length > 0) {
+    const currentVal = select.value;
+    select.innerHTML = '<option value="">-- Choose destination bank --</option>' + 
+      State.strowalletBanks.map(b => `<option value="${b.code}" data-name="${escapeHTML(b.name)}">${escapeHTML(b.name)}</option>`).join('');
+    if (currentVal) select.value = currentVal;
+    return;
+  }
+
+  select.innerHTML = '<option value="">-- Loading Nigerian banks... --</option>';
+
+  try {
+    let { ok, data } = await authFetch('/wallet/withdraw/banks');
+    if (!ok || !data?.success) {
+      // Fallback to events bank list if needed
+      const fb = await authFetch('/events/withdrawals/banks');
+      if (fb.ok && fb.data?.success) {
+        ok = true;
+        data = fb.data;
+      }
+    }
+
+    if (ok && data?.success && Array.isArray(data.banks) && data.banks.length > 0) {
+      State.strowalletBanks = data.banks;
+      const currentVal = select.value;
+      select.innerHTML = '<option value="">-- Choose destination bank --</option>' + 
+        data.banks.map(b => `<option value="${b.code}" data-name="${escapeHTML(b.name)}">${escapeHTML(b.name)}</option>`).join('');
+      if (currentVal) select.value = currentVal;
+    } else {
+      select.innerHTML = '<option value="">-- Failed to load banks, click to retry --</option>';
+    }
+  } catch (err) {
+    console.error('Error loading banks for main wallet:', err);
+    select.innerHTML = '<option value="">-- Failed to load banks, click to retry --</option>';
+  }
+}
+
+function calculateMainWithdrawalTotal() {
+  const amountInput = document.getElementById('mainWthAmount');
+  const stampDutyDisplay = document.getElementById('mainWthStampDutyDisplay');
+  const totalDeductionDisplay = document.getElementById('mainWthTotalDeductionDisplay');
+  const receiveAmountDisplay = document.getElementById('mainWthReceiveAmountDisplay');
+
+  const amount = parseFloat(amountInput ? amountInput.value : 0);
+
+  const stampDuty = (!isNaN(amount) && amount >= 10000) ? 50.00 : 0.00;
+  if (stampDutyDisplay) {
+    stampDutyDisplay.innerText = formatNaira(stampDuty);
+  }
+
+  if (!isNaN(amount) && amount > 0) {
+    const charge = 20.00;
+    const total = Math.round((amount + charge + stampDuty) * 100) / 100;
+    if (totalDeductionDisplay) totalDeductionDisplay.innerText = formatNaira(total);
+    if (receiveAmountDisplay) receiveAmountDisplay.innerText = formatNaira(amount);
+  } else {
+    if (totalDeductionDisplay) totalDeductionDisplay.innerText = '₦0.00';
+    if (receiveAmountDisplay) receiveAmountDisplay.innerText = '₦0.00';
+  }
+}
+
+function onMainBankSelectionChange() {
+  const accNum = document.getElementById('mainWthAccountNumber')?.value.trim() || '';
+  if (accNum.length === 10) {
+    verifyMainWalletAccount();
+  }
+}
+
+let verifyMainAccTimeout = null;
+function onMainAccountNumberInput(el) {
+  el.value = el.value.replace(/\D/g, '');
+  if (el.value.length === 10) {
+    clearTimeout(verifyMainAccTimeout);
+    verifyMainAccTimeout = setTimeout(verifyMainWalletAccount, 400);
+  } else {
+    const display = document.getElementById('mainWthAccountNameDisplay');
+    if (display) {
+      display.innerText = 'Enter 10-digit account number to verify owner name...';
+      display.style.color = 'var(--text-muted)';
+    }
+    const refEl = document.getElementById('mainWthNameEnquiryRef');
+    if (refEl) refEl.value = '';
+  }
+}
+
+async function verifyMainWalletAccount() {
+  const bankSelect = document.getElementById('mainWthBankSelect');
+  const bankCode = bankSelect?.value;
+  const accountNumber = document.getElementById('mainWthAccountNumber')?.value.trim();
+  const display = document.getElementById('mainWthAccountNameDisplay');
+
+  if (!display) return;
+
+  if (!bankCode) {
+    display.innerText = 'Please select a destination bank first.';
+    display.style.color = 'var(--status-warning)';
+    return;
+  }
+
+  if (!accountNumber || accountNumber.length !== 10) {
+    display.innerText = 'Account number must be 10 digits.';
+    display.style.color = 'var(--status-warning)';
+    return;
+  }
+
+  display.innerHTML = `<i class="fa-solid fa-spinner fa-spin" style="color: var(--accent-emerald);"></i> Verifying account with bank...`;
+  display.style.color = 'var(--accent-emerald)';
+
+  try {
+    let { ok, data } = await authFetch('/wallet/withdraw/verify-account', {
+      method: 'POST',
+      body: JSON.stringify({ bankCode, accountNumber })
+    });
+
+    if (!ok || !data?.success) {
+      const fb = await authFetch('/events/withdrawals/verify-account', {
+        method: 'POST',
+        body: JSON.stringify({ bankCode, accountNumber })
+      });
+      if (fb.ok && fb.data?.success) {
+        ok = true;
+        data = fb.data;
+      }
+    }
+
+    if (ok && data?.success && data.accountName) {
+      display.innerText = `✓ ${data.accountName}`;
+      display.style.color = 'var(--accent-emerald)';
+      const refEl = document.getElementById('mainWthNameEnquiryRef');
+      if (refEl) refEl.value = data.nameEnquiryReference || '';
+    } else {
+      display.innerText = `✗ ${data?.message || 'Could not verify account name'}`;
+      display.style.color = 'var(--status-error)';
+      const refEl = document.getElementById('mainWthNameEnquiryRef');
+      if (refEl) refEl.value = '';
+    }
+  } catch (err) {
+    display.innerText = 'Verification network error';
+    display.style.color = 'var(--status-error)';
+  }
+}
+
+async function submitMainWalletWithdrawal() {
+  const amount = parseFloat(document.getElementById('mainWthAmount')?.value);
+  const bankSelect = document.getElementById('mainWthBankSelect');
+  const bankCode = bankSelect?.value;
+  const bankName = bankSelect?.options[bankSelect.selectedIndex]?.getAttribute('data-name') || '';
+  const accountNumber = document.getElementById('mainWthAccountNumber')?.value.trim() || '';
+  const accountName = (document.getElementById('mainWthAccountNameDisplay')?.innerText || '').replace(/^✓\s*/, '').trim();
+  const narration = document.getElementById('mainWthNarration')?.value.trim() || 'Wallet withdrawal';
+  const pin = document.getElementById('mainWthPin')?.value || '';
+  const nameEnquiryRef = document.getElementById('mainWthNameEnquiryRef')?.value || '';
+
+  if (isNaN(amount) || amount < 100) {
+    showToast('Minimum withdrawal amount is ₦100.', 'error');
+    return;
+  }
+
+  if (!bankCode || accountNumber.length !== 10) {
+    showToast('Please select a bank and enter a valid 10-digit account number.', 'error');
+    return;
+  }
+
+  if (!accountName || accountName.includes('verify') || accountName.includes('Could not') || accountName.includes('error')) {
+    showToast('Please verify the destination account owner name before proceeding.', 'error');
+    return;
+  }
+
+  if (!pin || pin.length !== 4) {
+    showToast('Please enter your 4-digit STRICTWALLET Transaction PIN.', 'error');
+    return;
+  }
+
+  // Pre-check balance before sending request
+  const currentBal = parseFloat(State.wallet?.balance || 0);
+  const stampDuty = amount >= 10000 ? 50 : 0;
+  const totalDeduction = amount + 20 + stampDuty;
+  if (currentBal < totalDeduction) {
+    showToast(`Insufficient main wallet balance. Required: ${formatNaira(totalDeduction)}, Available: ${formatNaira(currentBal)}`, 'error');
+    return;
+  }
+
+  const btn = document.getElementById('btnSubmitMainWithdrawal');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Processing Transfer...`;
+  }
+
+  try {
+    const { ok, data } = await authFetch('/wallet/withdraw/request', {
+      method: 'POST',
+      body: JSON.stringify({
+        amount,
+        bankCode,
+        bankName,
+        accountNumber,
+        accountName,
+        narration,
+        nameEnquiryRef,
+        pin
+      })
+    });
+
+    if (ok && data?.success) {
+      showToast(data.message || 'Withdrawal processed successfully!', 'success');
+      closeModal('mainWalletWithdrawModal');
+
+      if (data.newBalance !== undefined && State.wallet) {
+        State.wallet.balance = parseFloat(data.newBalance);
+        updateBalanceDisplay();
+      }
+
+      await loadWalletOverview();
+
+      if (data.transaction) {
+        showReceiptModal(data.transaction);
+      }
+    } else {
+      showToast(data?.message || 'Withdrawal request failed.', 'error');
+      closeModal('mainWalletWithdrawModal');
+
+      if (data?.newBalance !== undefined && State.wallet) {
+        State.wallet.balance = parseFloat(data.newBalance);
+        updateBalanceDisplay();
+      }
+
+      await loadWalletOverview();
+
+      if (data?.transaction) {
+        showReceiptModal(data.transaction);
+      }
+    }
+  } catch (err) {
+    showToast('Error communicating with withdrawal service.', 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `<i class="fa-solid fa-arrow-up-from-bracket"></i> Confirm Withdrawal`;
+    }
+  }
 }
 
 // -------------------------------------------------------------
@@ -2889,6 +3220,12 @@ function setupEventsModuleListeners() {
   document.getElementById('eventWithdrawForm')?.addEventListener('submit', async function(e) {
     e.preventDefault();
     await submitEventWithdrawal();
+  });
+
+  // Main Wallet Withdrawal Form Submission
+  document.getElementById('mainWalletWithdrawForm')?.addEventListener('submit', async function(e) {
+    e.preventDefault();
+    await submitMainWalletWithdrawal();
   });
 }
 
