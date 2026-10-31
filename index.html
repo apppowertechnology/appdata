@@ -1581,6 +1581,30 @@
     </div>
   </div>
 
+  <!-- 6C. MAIN WALLET WITHDRAWAL RECEIPT MODAL -->
+  <div id="mainWalletWithdrawalReceiptModal" class="modal-overlay">
+    <div class="modal-box main-receipt-modal-box">
+      <div class="modal-header" style="border-bottom: 1px solid var(--border-color); padding-bottom: 14px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div class="receipt-icon-pill">
+            <i class="fa-solid fa-receipt"></i>
+          </div>
+          <div>
+            <h3 class="card-title" id="mainWthReceiptModalTitle">Transaction Receipt</h3>
+            <p class="card-subtitle" id="mainWthReceiptModalSubtitle">STRICTWALLET verified withdrawal record</p>
+          </div>
+        </div>
+        <button class="modal-close-btn" onclick="closeMainWalletReceiptModal()">&times;</button>
+      </div>
+      <div class="modal-body" id="mainWalletWithdrawalReceiptBody">
+        <!-- Injected dynamically by JS -->
+      </div>
+      <div class="modal-footer" id="mainWalletWithdrawalReceiptFooter" style="display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;">
+        <!-- Injected dynamically by JS -->
+      </div>
+    </div>
+  </div>
+
   <!-- ================= EVENT TICKETING SYSTEM MODALS ================= -->
 
   <!-- 7. CREATE EVENT MODAL -->

@@ -25,7 +25,8 @@ const State = {
   html5QrScanner: null,
   organizerWalletBalance: 0,
   organizerWithdrawals: [],
-  currentCreatorReceiptWithdrawal: null
+  currentCreatorReceiptWithdrawal: null,
+  currentMainReceiptWithdrawal: null
 };
 
 // API Base URL (Relative /api for local development & same-origin production)
@@ -1158,6 +1159,22 @@ function fallbackCopy(text, onSuccess) {
   document.body.removeChild(textArea);
 }
 
+// Reload Main Wallet Overview and Transaction History
+async function loadWalletOverview() {
+  try {
+    const { ok, data } = await authFetch('/wallet/overview');
+    if (ok && data?.success) {
+      if (data.wallet) {
+        State.wallet = data.wallet;
+        updateBalanceDisplay();
+      }
+      renderWalletOverview(data);
+    }
+  } catch (err) {
+    console.warn('Could not refresh wallet overview:', err);
+  }
+}
+
 function updateBalanceDisplay() {
   const balance = State.wallet ? State.wallet.balance : 0;
   const topbarEl = document.getElementById('topbarBalance');
@@ -2143,6 +2160,22 @@ async function loadAllTransactions() {
 }
 
 function showReceiptModal(tx) {
+  if (!tx) return;
+
+  // Dedicated Professional Receipt Handler for Main Wallet Withdrawals
+  if (tx.type === 'withdrawal') {
+    if (tx.status === 'Successful') {
+      showMainWalletWithdrawalReceipt(tx, { isImmediateSuccess: false });
+    } else if (tx.status === 'Pending' || tx.status === 'Processing') {
+      showMainWalletWithdrawalPending(tx);
+    } else if (tx.status === 'Failed') {
+      showMainWalletWithdrawalFailed(tx, tx.failureReason || 'Transfer could not be completed.');
+    } else {
+      showMainWalletWithdrawalReceipt(tx, { isImmediateSuccess: false });
+    }
+    return;
+  }
+
   const body = document.getElementById('txReceiptBody');
   if (!body) return;
 
@@ -2495,7 +2528,6 @@ async function submitMainWalletWithdrawal() {
     });
 
     if (ok && data?.success) {
-      showToast(data.message || 'Withdrawal processed successfully!', 'success');
       closeModal('mainWalletWithdrawModal');
 
       if (data.newBalance !== undefined && State.wallet) {
@@ -2505,11 +2537,17 @@ async function submitMainWalletWithdrawal() {
 
       await loadWalletOverview();
 
-      if (data.transaction) {
-        showReceiptModal(data.transaction);
+      const tx = data.transaction;
+      if (tx && tx.status === 'Successful') {
+        showToast(data.message || 'Withdrawal processed successfully!', 'success');
+        showMainWalletWithdrawalReceipt(tx, { isImmediateSuccess: true });
+      } else if (tx && (tx.status === 'Pending' || tx.status === 'Processing')) {
+        showToast(data.message || 'Withdrawal submitted and currently pending with provider.', 'warning');
+        showMainWalletWithdrawalPending(tx);
+      } else {
+        showToast(data.message || 'Withdrawal request processed.', 'info');
       }
     } else {
-      showToast(data?.message || 'Withdrawal request failed.', 'error');
       closeModal('mainWalletWithdrawModal');
 
       if (data?.newBalance !== undefined && State.wallet) {
@@ -2519,18 +2557,626 @@ async function submitMainWalletWithdrawal() {
 
       await loadWalletOverview();
 
-      if (data?.transaction) {
-        showReceiptModal(data.transaction);
+      const tx = data?.transaction;
+      const errorMsg = data?.message || 'Withdrawal request failed.';
+      showToast(errorMsg, 'error');
+
+      if (tx && tx.status === 'Failed') {
+        showMainWalletWithdrawalFailed(tx, errorMsg);
+      } else if (tx && (tx.status === 'Pending' || tx.status === 'Processing')) {
+        showMainWalletWithdrawalPending(tx);
       }
     }
   } catch (err) {
-    showToast('Error communicating with withdrawal service.', 'error');
+    console.error('Error submitting withdrawal:', err);
+    showToast(err?.message || 'Error communicating with withdrawal service.', 'error');
   } finally {
     if (btn) {
       btn.disabled = false;
       btn.innerHTML = `<i class="fa-solid fa-arrow-up-from-bracket"></i> Confirm Withdrawal`;
     }
   }
+}
+
+// -------------------------------------------------------------
+// MAIN WALLET PROFESSIONAL TRANSACTION RECEIPT ENGINE
+// -------------------------------------------------------------
+
+function showMainWalletWithdrawalReceipt(tx, options = { isImmediateSuccess: false }) {
+  if (!tx) return;
+  State.currentMainReceiptWithdrawal = tx;
+
+  const titleEl = document.getElementById('mainWthReceiptModalTitle');
+  const subtitleEl = document.getElementById('mainWthReceiptModalSubtitle');
+  const bodyEl = document.getElementById('mainWalletWithdrawalReceiptBody');
+  const footerEl = document.getElementById('mainWalletWithdrawalReceiptFooter');
+
+  if (!bodyEl) return;
+
+  if (titleEl) {
+    titleEl.innerHTML = `<i class="fa-solid fa-receipt" style="color: var(--accent-emerald);"></i> Withdrawal Receipt`;
+  }
+  if (subtitleEl) {
+    subtitleEl.innerText = 'STRICTWALLET verified main wallet withdrawal receipt';
+  }
+
+  const amount = parseFloat(tx.amount || 0);
+  const fee = parseFloat(tx.charge || 20.00);
+  const stampDuty = parseFloat(tx.stampDuty || 0);
+  const totalDeducted = parseFloat(tx.totalDeducted || (amount + fee + stampDuty));
+  const maskedAcc = formatMaskedAccount(tx.accountNumber);
+  const txDate = tx.createdAt ? new Date(tx.createdAt) : new Date();
+  const dateStr = txDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  const timeStr = txDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  const formattedDateTime = `${dateStr}, ${timeStr}`;
+  const narration = escapeHTML(tx.narration || tx.description || 'Main wallet withdrawal');
+
+  const isImmediate = options && options.isImmediateSuccess;
+
+  bodyEl.innerHTML = `
+    ${isImmediate ? `
+    <!-- Success Confirmation Message -->
+    <div class="receipt-success-banner">
+      <div class="receipt-success-icon-wrap">
+        <i class="fa-solid fa-circle-check"></i>
+      </div>
+      <h2 class="receipt-success-title">Withdrawal Successful!</h2>
+      <p class="receipt-success-desc">
+        Your withdrawal has been processed successfully. Your transaction receipt is available below.
+      </p>
+    </div>` : `
+    <div style="text-align: center; margin-bottom: 14px;">
+      <h3 style="font-size: 1.15rem; font-weight: 800; color: #FFF; margin-bottom: 3px;">STRICTWALLET Withdrawal Receipt</h3>
+      <p style="font-size: 0.8rem; color: var(--text-muted); margin: 0;">Official transaction receipt for your completed Main Wallet withdrawal.</p>
+    </div>`}
+
+    <!-- Professional Receipt Card -->
+    <div class="professional-receipt-container" id="printableMainReceipt">
+      
+      <!-- Brand & Status Header -->
+      <div class="receipt-brand-row">
+        <div class="receipt-brand-identity">
+          <img src="Image.png" alt="STRICTWALLET" class="receipt-brand-logo" onerror="this.style.display='none'">
+          <div class="receipt-brand-names">
+            <span class="receipt-brand-primary">STRICTWALLET</span>
+            <span class="receipt-brand-tagline">MAIN WALLET WITHDRAWAL</span>
+          </div>
+        </div>
+        <div class="receipt-status-pill success">
+          <i class="fa-solid fa-circle-check"></i> SUCCESSFUL
+        </div>
+      </div>
+
+      <!-- Hero Amount Box -->
+      <div class="receipt-hero-amount-card">
+        <span class="receipt-amount-label">AMOUNT WITHDRAWN</span>
+        <div class="receipt-amount-value">${formatNaira(amount)}</div>
+        <div class="receipt-amount-dest">
+          <i class="fa-solid fa-building-columns"></i> ${escapeHTML(tx.bankName || 'Bank')} • ${maskedAcc}
+        </div>
+      </div>
+
+      <!-- Details Data Table -->
+      <div class="receipt-data-table">
+        <div class="receipt-data-row">
+          <span class="data-label">Transaction Reference:</span>
+          <span class="data-value mono" style="display: inline-flex; align-items: center;">
+            <code style="color: var(--accent-emerald); font-weight: 700; font-size: 0.82rem;">${escapeHTML(tx.id || 'N/A')}</code>
+            <button type="button" class="receipt-copy-btn" onclick="copyReceiptText('${escapeHTML(tx.id || '')}', 'Transaction Reference')" title="Copy Reference">
+              <i class="fa-regular fa-copy"></i>
+            </button>
+          </span>
+        </div>
+
+        ${tx.providerReference ? `
+        <div class="receipt-data-row">
+          <span class="data-label">Provider Reference:</span>
+          <span class="data-value mono" style="font-size: 0.82rem;">${escapeHTML(tx.providerReference)}</span>
+        </div>` : ''}
+
+        <div class="receipt-data-row">
+          <span class="data-label">Transaction Status:</span>
+          <span class="data-value">
+            <span class="badge badge-success" style="font-size: 0.74rem; padding: 3px 10px;">
+              <i class="fa-solid fa-circle-check"></i> SUCCESSFUL
+            </span>
+          </span>
+        </div>
+
+        <div class="receipt-data-row">
+          <span class="data-label">Recipient Account Name:</span>
+          <strong class="data-value">${escapeHTML(tx.accountName || '-')}</strong>
+        </div>
+
+        <div class="receipt-data-row">
+          <span class="data-label">Recipient Bank:</span>
+          <strong class="data-value">${escapeHTML(tx.bankName || 'Bank')}</strong>
+        </div>
+
+        <div class="receipt-data-row">
+          <span class="data-label">Recipient Account Number:</span>
+          <span class="data-value mono">${maskedAcc}</span>
+        </div>
+
+        <div class="receipt-data-row divider-before">
+          <span class="data-label">Amount Withdrawn:</span>
+          <strong class="data-value mono" style="color: var(--accent-emerald); font-size: 0.95rem;">${formatNaira(amount)}</strong>
+        </div>
+
+        <div class="receipt-data-row">
+          <span class="data-label">Withdrawal Fee:</span>
+          <span class="data-value mono">${formatNaira(fee)}</span>
+        </div>
+
+        ${stampDuty > 0 ? `
+        <div class="receipt-data-row">
+          <span class="data-label">Statutory Stamp Duty:</span>
+          <span class="data-value mono">${formatNaira(stampDuty)}</span>
+        </div>` : ''}
+
+        <div class="receipt-data-row total-highlight">
+          <span class="data-label" style="font-weight: 700; color: #FFF;">Total Amount Deducted:</span>
+          <strong class="data-value mono" style="font-size: 1.05rem; color: #FFF;">
+            ${formatNaira(totalDeducted)}
+          </strong>
+        </div>
+
+        <div class="receipt-data-row divider-before">
+          <span class="data-label">Description / Narration:</span>
+          <span class="data-value">${narration}</span>
+        </div>
+
+        <div class="receipt-data-row">
+          <span class="data-label">Transaction Date & Time:</span>
+          <span class="data-value">${formattedDateTime}</span>
+        </div>
+      </div>
+
+      <!-- Security Seal -->
+      <div class="receipt-security-seal">
+        <i class="fa-solid fa-shield-halved"></i>
+        <span>Verified STRICTWALLET Main Financial Ledger Record</span>
+      </div>
+    </div>
+  `;
+
+  if (footerEl) {
+    footerEl.innerHTML = `
+      <button type="button" class="btn btn-secondary" onclick="closeMainWalletReceiptModal()">
+        <i class="fa-solid fa-arrow-left"></i> Close
+      </button>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+        <button type="button" class="btn btn-outline" id="btnShareMainReceipt" onclick="shareCurrentMainReceipt()">
+          <i class="fa-solid fa-share-nodes"></i> Share Receipt
+        </button>
+        <button type="button" class="btn btn-primary" id="btnDownloadMainReceiptPdf" onclick="downloadCurrentMainReceiptPdf()">
+          <i class="fa-solid fa-file-pdf"></i> Download Receipt (PDF)
+        </button>
+      </div>
+    `;
+  }
+
+  openModal('mainWalletWithdrawalReceiptModal');
+}
+
+function showMainWalletWithdrawalPending(tx) {
+  if (!tx) return;
+  State.currentMainReceiptWithdrawal = tx;
+
+  const titleEl = document.getElementById('mainWthReceiptModalTitle');
+  const subtitleEl = document.getElementById('mainWthReceiptModalSubtitle');
+  const bodyEl = document.getElementById('mainWalletWithdrawalReceiptBody');
+  const footerEl = document.getElementById('mainWalletWithdrawalReceiptFooter');
+
+  if (!bodyEl) return;
+
+  if (titleEl) {
+    titleEl.innerHTML = `<i class="fa-solid fa-clock" style="color: var(--status-warning);"></i> Withdrawal Pending`;
+  }
+  if (subtitleEl) {
+    subtitleEl.innerText = 'Withdrawal is currently being processed by provider';
+  }
+
+  const amount = parseFloat(tx.amount || 0);
+  const maskedAcc = formatMaskedAccount(tx.accountNumber);
+  const formattedDateTime = formatDateTime(tx.createdAt);
+
+  bodyEl.innerHTML = `
+    <!-- Pending Notification Banner -->
+    <div class="receipt-pending-banner">
+      <div class="receipt-pending-icon-wrap">
+        <i class="fa-solid fa-clock-rotate-left"></i>
+      </div>
+      <h2 class="receipt-pending-title">Withdrawal Pending</h2>
+      <p class="receipt-pending-desc">
+        Your withdrawal request has been submitted and is currently being processed by the destination bank provider.
+      </p>
+    </div>
+
+    <!-- Details Card -->
+    <div class="professional-receipt-container">
+      <div class="receipt-brand-row">
+        <div class="receipt-brand-identity">
+          <img src="Image.png" alt="STRICTWALLET" class="receipt-brand-logo" onerror="this.style.display='none'">
+          <div class="receipt-brand-names">
+            <span class="receipt-brand-primary">STRICTWALLET</span>
+            <span class="receipt-brand-tagline">MAIN WALLET WITHDRAWAL</span>
+          </div>
+        </div>
+        <div class="receipt-status-pill pending">
+          <i class="fa-solid fa-clock"></i> PENDING
+        </div>
+      </div>
+
+      <div class="receipt-data-table">
+        <div class="receipt-data-row">
+          <span class="data-label">Transaction Reference:</span>
+          <span class="data-value mono"><code style="color: var(--accent-emerald);">${escapeHTML(tx.id || 'N/A')}</code></span>
+        </div>
+        <div class="receipt-data-row">
+          <span class="data-label">Amount:</span>
+          <strong class="data-value mono">${formatNaira(amount)}</strong>
+        </div>
+        <div class="receipt-data-row">
+          <span class="data-label">Destination Bank:</span>
+          <span class="data-value">${escapeHTML(tx.bankName || 'Bank')}</span>
+        </div>
+        <div class="receipt-data-row">
+          <span class="data-label">Account Number:</span>
+          <span class="data-value mono">${maskedAcc}</span>
+        </div>
+        <div class="receipt-data-row">
+          <span class="data-label">Account Name:</span>
+          <span class="data-value">${escapeHTML(tx.accountName || '-')}</span>
+        </div>
+        <div class="receipt-data-row">
+          <span class="data-label">Submission Date:</span>
+          <span class="data-value">${formattedDateTime}</span>
+        </div>
+      </div>
+
+      <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: var(--radius-sm); padding: 12px; margin-top: 14px; color: #FCD34D; font-size: 0.82rem; line-height: 1.45;">
+        <i class="fa-solid fa-info-circle"></i> Destination bank settlements usually finalize within minutes. We will update your wallet balance and history once confirmation is received.
+      </div>
+    </div>
+  `;
+
+  if (footerEl) {
+    footerEl.innerHTML = `
+      <button type="button" class="btn btn-secondary" onclick="closeMainWalletReceiptModal()" style="width: 100%;">
+        Close
+      </button>
+    `;
+  }
+
+  openModal('mainWalletWithdrawalReceiptModal');
+}
+
+function showMainWalletWithdrawalFailed(tx, errorMessage) {
+  const titleEl = document.getElementById('mainWthReceiptModalTitle');
+  const subtitleEl = document.getElementById('mainWthReceiptModalSubtitle');
+  const bodyEl = document.getElementById('mainWalletWithdrawalReceiptBody');
+  const footerEl = document.getElementById('mainWalletWithdrawalReceiptFooter');
+
+  if (!bodyEl) return;
+
+  if (titleEl) {
+    titleEl.innerHTML = `<i class="fa-solid fa-circle-xmark" style="color: var(--status-error);"></i> Withdrawal Failed`;
+  }
+  if (subtitleEl) {
+    subtitleEl.innerText = 'Transfer could not be processed';
+  }
+
+  const amount = parseFloat(tx?.amount || 0);
+  const maskedAcc = formatMaskedAccount(tx?.accountNumber);
+
+  bodyEl.innerHTML = `
+    <!-- Failed Notification Banner -->
+    <div class="receipt-failed-banner">
+      <div class="receipt-failed-icon-wrap">
+        <i class="fa-solid fa-circle-xmark"></i>
+      </div>
+      <h2 class="receipt-failed-title">Withdrawal Failed</h2>
+      <p class="receipt-failed-desc">
+        ${escapeHTML(errorMessage || 'Your withdrawal could not be completed at this time.')}
+      </p>
+    </div>
+
+    <!-- Details Card -->
+    <div class="professional-receipt-container">
+      <div class="receipt-brand-row">
+        <div class="receipt-brand-identity">
+          <img src="Image.png" alt="STRICTWALLET" class="receipt-brand-logo" onerror="this.style.display='none'">
+          <div class="receipt-brand-names">
+            <span class="receipt-brand-primary">STRICTWALLET</span>
+            <span class="receipt-brand-tagline">MAIN WALLET WITHDRAWAL</span>
+          </div>
+        </div>
+        <div class="receipt-status-pill failed">
+          <i class="fa-solid fa-xmark"></i> FAILED
+        </div>
+      </div>
+
+      <div class="receipt-data-table">
+        <div class="receipt-data-row">
+          <span class="data-label">Transaction Reference:</span>
+          <span class="data-value mono"><code>${escapeHTML(tx?.id || 'N/A')}</code></span>
+        </div>
+        ${amount > 0 ? `
+        <div class="receipt-data-row">
+          <span class="data-label">Attempted Amount:</span>
+          <strong class="data-value mono">${formatNaira(amount)}</strong>
+        </div>` : ''}
+        ${tx?.bankName ? `
+        <div class="receipt-data-row">
+          <span class="data-label">Destination Bank:</span>
+          <span class="data-value">${escapeHTML(tx.bankName)}</span>
+        </div>` : ''}
+        ${tx?.accountNumber ? `
+        <div class="receipt-data-row">
+          <span class="data-label">Account Number:</span>
+          <span class="data-value mono">${maskedAcc}</span>
+        </div>` : ''}
+      </div>
+
+      <div style="background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: var(--radius-sm); padding: 12px; margin-top: 14px; color: #FCA5A5; font-size: 0.82rem; line-height: 1.45;">
+        <i class="fa-solid fa-shield-halved" style="color: var(--accent-emerald);"></i> <strong>Safe Reversal:</strong> Your Main Wallet balance has been safely restored in full. No funds were lost.
+      </div>
+    </div>
+  `;
+
+  if (footerEl) {
+    footerEl.innerHTML = `
+      <button type="button" class="btn btn-secondary" onclick="closeMainWalletReceiptModal()" style="width: 100%;">
+        Close
+      </button>
+    `;
+  }
+
+  openModal('mainWalletWithdrawalReceiptModal');
+}
+
+function downloadCurrentMainReceiptPdf() {
+  if (!State.currentMainReceiptWithdrawal) {
+    showToast('No receipt selected for download.', 'warning');
+    return;
+  }
+  downloadMainWalletWithdrawalReceiptPdf(State.currentMainReceiptWithdrawal);
+}
+
+function downloadMainWalletWithdrawalReceiptPdf(tx) {
+  if (!tx) return;
+
+  const { jsPDF } = window.jspdf || {};
+  if (!jsPDF) {
+    showToast('PDF generation engine not available. Opening printable view...', 'info');
+    window.print();
+    return;
+  }
+
+  const btn = document.getElementById('btnDownloadMainReceiptPdf');
+  const origText = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Generating PDF...`;
+  }
+
+  try {
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const pageW = doc.internal.pageSize.getWidth();
+    const margin = 16;
+    const contentW = pageW - margin * 2;
+
+    // Header Navy Bar
+    doc.setFillColor(13, 21, 45); // #0D152D
+    doc.rect(0, 0, pageW, 36, 'F');
+
+    // Emerald Top Stripe
+    doc.setFillColor(0, 208, 156); // #00D09C
+    doc.rect(0, 0, pageW, 4, 'F');
+
+    // STRICTWALLET Title
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(18);
+    doc.setTextColor(255, 255, 255);
+    doc.text('STRICTWALLET', margin, 20);
+
+    doc.setFontSize(8.5);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(0, 208, 156);
+    doc.text('DIGITAL WALLET & FINTECH SERVICES', margin, 27);
+
+    // Document Title
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(13);
+    doc.setTextColor(15, 23, 42);
+    doc.text('MAIN WALLET WITHDRAWAL TRANSACTION RECEIPT', margin, 46);
+
+    // Status Banner
+    doc.setFillColor(236, 253, 245);
+    doc.setDrawColor(167, 243, 208);
+    doc.setLineWidth(0.4);
+    doc.roundedRect(margin, 52, contentW, 13, 2, 2, 'FD');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(5, 150, 105);
+    doc.text('STATUS: SUCCESSFUL (FUNDS DISBURSED)', pageW / 2, 60.5, { align: 'center' });
+
+    // Amount Box
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(margin, 70, contentW, 25, 2, 2, 'FD');
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text('AMOUNT WITHDRAWN (PRINCIPAL SENT TO BANK)', pageW / 2, 78, { align: 'center' });
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(17);
+    doc.setTextColor(15, 23, 42);
+    const amountVal = parseFloat(tx.amount || 0);
+    const netAmountStr = `NGN ${amountVal.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    doc.text(netAmountStr, pageW / 2, 88, { align: 'center' });
+
+    // Details Rows
+    const startY = 104;
+    const fee = parseFloat(tx.charge || 20.00);
+    const stampDuty = parseFloat(tx.stampDuty || 0);
+    const gross = parseFloat(tx.totalDeducted || (amountVal + fee + stampDuty));
+    const maskedAcc = formatMaskedAccount(tx.accountNumber);
+    const txDate = tx.createdAt ? new Date(tx.createdAt) : new Date();
+    const dateStr = txDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    const timeStr = txDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+
+    const rows = [
+      ['Transaction Reference', tx.id || 'N/A'],
+      ['Provider Reference', tx.providerReference || 'Completed'],
+      ['Transaction Type', 'Main Wallet Bank Withdrawal'],
+      ['Recipient Account Name', tx.accountName || 'N/A'],
+      ['Destination Bank', tx.bankName || 'N/A'],
+      ['Destination Account Number', maskedAcc],
+      ['Amount Withdrawn', `NGN ${amountVal.toLocaleString('en-NG', { minimumFractionDigits: 2 })}`],
+      ['Bank Withdrawal Charge', `NGN ${fee.toLocaleString('en-NG', { minimumFractionDigits: 2 })}`],
+      ...(stampDuty > 0 ? [['Statutory Stamp Duty', `NGN ${stampDuty.toLocaleString('en-NG', { minimumFractionDigits: 2 })}`]] : []),
+      ['Total Amount Deducted', `NGN ${gross.toLocaleString('en-NG', { minimumFractionDigits: 2 })}`],
+      ['Description / Narration', tx.narration || tx.description || 'Main wallet withdrawal'],
+      ['Date & Time', `${dateStr}, ${timeStr}`],
+      ['Transfer Status', 'SUCCESSFUL']
+    ];
+
+    let curY = startY;
+    rows.forEach(([label, val], idx) => {
+      if (idx % 2 === 0) {
+        doc.setFillColor(250, 250, 250);
+        doc.rect(margin, curY - 4.5, contentW, 7.5, 'F');
+      }
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(100, 116, 139);
+      doc.text(label, margin + 3, curY);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.setTextColor(15, 23, 42);
+      const splitVal = doc.splitTextToSize(val.toString(), 95);
+      doc.text(splitVal[0], pageW - margin - 3, curY, { align: 'right' });
+
+      curY += 8;
+    });
+
+    // Footer
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.4);
+    doc.line(margin, 266, pageW - margin, 266);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Official STRICTWALLET Transaction Receipt • Generated on ${new Date().toLocaleString()}`, margin, 273);
+    doc.text('This is an authentic transaction receipt from the STRICTWALLET financial ledger.', margin, 278);
+
+    doc.save(`STRICTWALLET_Receipt_${tx.id || 'Withdrawal'}.pdf`);
+    showToast('Withdrawal receipt PDF downloaded successfully!', 'success');
+  } catch (pdfErr) {
+    console.error('Receipt PDF Generation Error:', pdfErr);
+    showToast('Failed to generate PDF receipt. Opening print view...', 'error');
+    window.print();
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = origText || `<i class="fa-solid fa-file-pdf"></i> Download Receipt (PDF)`;
+    }
+  }
+}
+
+async function shareCurrentMainReceipt() {
+  const tx = State.currentMainReceiptWithdrawal;
+  if (!tx) {
+    showToast('No receipt selected to share.', 'warning');
+    return;
+  }
+
+  const amountVal = parseFloat(tx.amount || 0);
+  const fee = parseFloat(tx.charge || 20.00);
+  const stampDuty = parseFloat(tx.stampDuty || 0);
+  const gross = parseFloat(tx.totalDeducted || (amountVal + fee + stampDuty));
+  const maskedAcc = formatMaskedAccount(tx.accountNumber);
+  const txDate = tx.createdAt ? new Date(tx.createdAt) : new Date();
+  const dateStr = txDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  const timeStr = txDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+
+  const shareText = 
+`━━━━━━━━━━━━━━━━━━━━━━━━━
+STRICTWALLET WITHDRAWAL RECEIPT
+━━━━━━━━━━━━━━━━━━━━━━━━━
+Status: SUCCESSFUL
+Reference: ${tx.id}
+Amount Withdrawn: ₦${amountVal.toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+Withdrawal Fee: ₦${fee.toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+${stampDuty > 0 ? `Stamp Duty: ₦${stampDuty.toLocaleString('en-NG', { minimumFractionDigits: 2 })}\n` : ''}Total Deducted: ₦${gross.toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+Destination Bank: ${tx.bankName || 'Bank'}
+Account Name: ${tx.accountName || 'N/A'}
+Account Number: ${maskedAcc}
+Narration: ${tx.narration || tx.description || 'Main wallet withdrawal'}
+Date & Time: ${dateStr}, ${timeStr}
+━━━━━━━━━━━━━━━━━━━━━━━━━
+Verified STRICTWALLET Financial Record`;
+
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        title: 'STRICTWALLET Withdrawal Receipt',
+        text: shareText
+      });
+      showToast('Receipt shared successfully!', 'success');
+      return;
+    } catch (shareErr) {
+      if (shareErr.name === 'AbortError') return;
+    }
+  }
+
+  // Fallback to Clipboard copy
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(shareText);
+      showToast('Receipt details copied to clipboard! You can paste and share it anywhere.', 'success');
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = shareText;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      showToast('Receipt details copied to clipboard!', 'success');
+    }
+  } catch (clipErr) {
+    showToast('Could not copy receipt details.', 'error');
+  }
+}
+
+function copyReceiptText(text, label = 'Text') {
+  if (!text) return;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => {
+      showToast(`${label} copied to clipboard!`, 'success');
+    }).catch(() => {
+      showToast(`Failed to copy ${label}.`, 'error');
+    });
+  } else {
+    showToast(`${label}: ${text}`, 'info');
+  }
+}
+
+function closeMainWalletReceiptModal() {
+  closeModal('mainWalletWithdrawalReceiptModal');
+  State.currentMainReceiptWithdrawal = null;
+  if (State.currentView !== 'viewDashboard') {
+    navigateToView('viewDashboard');
+  }
+  loadWalletOverview();
 }
 
 // -------------------------------------------------------------
